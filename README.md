@@ -1,104 +1,121 @@
 <p align="center">
-  <img src="web/logo.svg" alt="Resona" width="96" />
+  <img src="web/logo.svg" alt="Sona" width="96" />
 </p>
 
-<h1 align="center">Resona — The AI Reputation Engine</h1>
+<h1 align="center">Sona — The Customer Signal Layer</h1>
 
 <p align="center">
-  <strong>Every review answered. Every insight captured. Every risk caught.</strong><br/>
-  Autonomous review response, sentiment intelligence, and reputation alerting for multi-location businesses.
+  <strong>One schema for everything your customers say. Intelligence, automation, and benchmarks on top.</strong>
 </p>
 
 ---
 
-## What Resona is
+## What Sona is
 
-Online reviews are the single highest-leverage marketing surface for local and consumer businesses: 93% of consumers read reviews before buying, and businesses that respond to reviews earn measurably higher ratings and conversion. Yet most businesses answer fewer than 1 in 4 reviews, because doing it well — on-brand, in the customer's language, within hours — does not scale with humans.
+Every company is told what's wrong with it every day — in reviews, NPS
+verbatims, support tickets, chats, surveys, and social mentions. That feedback
+is scattered, unstructured, unanswered, and unusable. Sona is the
+infrastructure layer that fixes this:
 
-Resona is an autonomous agent that does it for them:
+1. **One canonical schema.** Every piece of feedback from every channel becomes
+   a `Signal` — same shape, same vocabulary, forever queryable.
+2. **AI enrichment.** Each signal is enriched within seconds: sentiment, intent,
+   urgency, churn risk, legal/safety risk, language, and topics mapped onto a
+   single cross-industry taxonomy.
+3. **Automations.** Declarative rules over the canonical schema fire real
+   actions: webhooks into your stack, alerts, on-brand AI replies (with a
+   code-enforced safety gate), tags. One rule works across every channel.
+4. **Ask.** Natural-language questions over your signals, answered with
+   evidence: `POST /v1/ask {"question": "What do detractors mention that
+   promoters don't?"}`.
+5. **Benchmarks.** Because all tenants speak one taxonomy, Sona computes
+   anonymized industry benchmarks (k-anonymity enforced): *"your wait-time
+   complaint rate vs. your category"* — data no single company can have alone.
 
-1. **Ingests** reviews continuously from Google Business Profile, Trustpilot, and any source via webhook.
-2. **Understands** each review with Claude — sentiment, topics, urgency, churn risk, and legally sensitive content — as validated, structured data.
-3. **Responds** in the business's own voice, governed by a per-brand voice profile and configurable approval workflow (auto-publish, human-approve, or draft-only).
-4. **Alerts** owners in real time when a review signals reputation risk (health/safety claims, legal threats, review-bombing patterns, sudden rating drops).
-5. **Reports** weekly executive insights: what customers love, what's breaking, which locations are slipping, and what to fix first.
+The **reputation module** (brand-voice reply drafting + approval workflow) is
+the first vertical module on the platform and the commercial wedge.
 
-It is sold as a B2B SaaS with per-location recurring pricing. Margins are structurally high: the unit of work (one review) costs fractions of a cent in inference and replaces minutes of human labor priced at dollars.
-
-## Quickstart (local)
+## Quickstart
 
 ```bash
-# 1. Install
 pip install -e ".[dev]"
-
-# 2. Configure
-cp .env.example .env          # add your ANTHROPIC_API_KEY
-
-# 3. Run the API
-uvicorn app.main:app --reload
-
-# 4. Open the docs
+cp .env.example .env          # add ANTHROPIC_API_KEY
+uvicorn sona.main:app --reload
 open http://localhost:8000/docs
 ```
 
-Or with Docker:
+Or: `docker compose up --build` (API + worker + Postgres).
+
+### 90-second tour
 
 ```bash
-docker compose up --build
-```
-
-### 60-second demo
-
-```bash
-# Create an organization (returns an API key)
+# Sign up (the API key is returned once; only its hash is stored)
 curl -s -X POST localhost:8000/v1/organizations \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Bluebird Coffee", "plan": "growth"}'
+  -d '{"name": "Bluebird Coffee", "industry": "food & beverage", "plan": "growth"}'
 
-# Add a location
-curl -s -X POST localhost:8000/v1/locations \
-  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"name": "Bluebird Coffee — Mission St", "platform_ids": {"google": "ChIJexample"}}'
+# Create a source and ingest a signal — any channel, one endpoint
+curl -s -X POST localhost:8000/v1/sources \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"name": "Google — Mission St", "kind": "google"}'
 
-# Ingest a review (webhook or connector does this automatically in production)
-curl -s -X POST localhost:8000/v1/reviews/ingest \
-  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"location_id": 1, "platform": "google", "external_id": "r-1001",
-       "author": "Dana M.", "rating": 2,
-       "text": "Waited 25 minutes for a latte and the barista was rude about it."}'
+curl -s -X POST localhost:8000/v1/signals \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"source_id": 1, "external_id": "r-1001", "kind": "review", "rating": 2,
+       "author": {"name": "Dana M."},
+       "content": "Waited 25 minutes for a latte and the barista was rude about it."}'
 
-# Resona analyzes it and drafts a response automatically. Fetch the draft:
-curl -s localhost:8000/v1/responses?status=pending_approval -H "Authorization: Bearer $API_KEY"
+# Seconds later the signal is enriched. Wire an automation:
+curl -s -X POST localhost:8000/v1/automations \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"name": "Reply to all reviews",
+       "conditions": [{"field": "kind", "op": "eq", "value": "review"}],
+       "action_type": "draft_reply", "action_config": {"auto_approve": false}}'
+
+# Ask your customers anything
+curl -s -X POST localhost:8000/v1/ask \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"question": "What is driving negative sentiment this month?"}'
 ```
 
 ## Repository layout
 
 ```
-app/                 FastAPI application
-  ai/                Claude integration: prompts, structured analysis, response engine
-  connectors/        Review-source connectors (Google, Trustpilot, generic webhook)
-  routers/           HTTP API (organizations, locations, reviews, responses, insights, billing)
-  services/          Domain logic: pipeline, alerting, insights, usage metering
-  worker.py          Background poller + weekly insight scheduler
-tests/               Pytest suite (AI layer fully mocked — no network needed)
-web/                 Marketing landing page (static, deployable to any CDN)
-docs/                Architecture, API reference, business plan, brand, deployment, roadmap
+sona/
+  core/taxonomy.py     The canonical topic taxonomy (the shared vocabulary)
+  models.py            Signal-centric data model (orgs, sources, signals,
+                       automations, action runs, drafts, benchmarks, usage)
+  intelligence/        Claude engine: enrichment, reply drafting, synthesis
+                       (structured outputs + prompt caching + model tiers)
+  actions/engine.py    Automation rules + actions, with code-level safety gates
+  pipeline.py          ingest -> enrich -> automate -> meter
+  benchmarks.py        Cross-tenant k-anonymous aggregates (the network effect)
+  connectors/          Connector SDK + Google/Trustpilot connectors
+  api/                 FastAPI surface (signals, ask, automations, benchmarks,
+                       reputation module)
+  worker.py            Connector polling + nightly benchmark recompute
+tests/                 24 tests, AI fully mocked — runs with no network
+docs/                  Vision/memo, architecture, API, business, brand, ops
+web/                   Marketing site
 ```
 
 ## Documentation
 
 | Doc | Contents |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data model, AI pipeline, scaling path |
+| [docs/VISION.md](docs/VISION.md) | The investment memo — why v1 was killed and what Sona is |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, schema, AI economics, scaling |
 | [docs/API.md](docs/API.md) | Full HTTP API reference |
-| [docs/BUSINESS.md](docs/BUSINESS.md) | Market, pricing, unit economics, go-to-market plan |
-| [docs/BRAND.md](docs/BRAND.md) | Identity, voice, positioning, launch copy |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment (Docker, Postgres, secrets) |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 12-month product roadmap |
+| [docs/BUSINESS.md](docs/BUSINESS.md) | Market, pricing, moat, go-to-market |
+| [docs/BRAND.md](docs/BRAND.md) | Identity and launch copy |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production operations |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 12-month plan |
 
 ## Tech
 
-Python 3.11 · FastAPI · SQLAlchemy (SQLite dev / Postgres prod) · Anthropic Claude API (Opus 4.8 + Haiku 4.5) · APScheduler · Stripe (billing) · Docker
+Python 3.11 · FastAPI · SQLAlchemy (SQLite dev / Postgres prod) · Anthropic
+Claude (Haiku 4.5 enrichment / Opus 4.8 generation, structured outputs, prompt
+caching) · APScheduler · Docker
 
 ## License
 

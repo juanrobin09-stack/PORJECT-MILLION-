@@ -1,113 +1,113 @@
-# Resona — Architecture
+# Sona — Architecture
 
 ## System overview
 
 ```
-                         ┌──────────────────────────────────────────────┐
-  Google Business ──┐    │                   RESONA                     │
-  Trustpilot ───────┼──▶ │  worker.py (poller)        FastAPI (app/)    │ ◀── Dashboard / API clients
-  Any source ───────┘    │        │                        │            │
-   (webhook)             │        ▼                        ▼            │
-                         │  ┌─────────────────────────────────────┐     │
-                         │  │        PIPELINE (services/)         │     │
-                         │  │ ingest → analyze → alert → quota →  │     │
-                         │  │ draft → route (approve/auto/draft)  │     │
-                         │  └──────┬───────────────┬──────────────┘     │
-                         │         │               │                    │
-                         │     Claude API      PostgreSQL               │
-                         │  (Haiku triage,    (SQLite in dev)           │
-                         │   Opus writing/                              │
-                         │   insights)                                  │
-                         └──────────────────────────────────────────────┘
+ reviews / NPS / tickets / chats / surveys / social
+        │                          │
+   connectors (worker)        POST /v1/signals
+        └────────────┬─────────────┘
+                     ▼
+        ┌─────────────────────────────┐
+        │   PIPELINE (pipeline.py)    │
+        │ ingest → enrich → automate  │
+        │        → meter              │
+        └───────┬───────────┬─────────┘
+                │           │
+           Claude API   PostgreSQL ──▶ nightly benchmark job
+        (Haiku enrich,               (cross-tenant k-anonymous
+         Opus generate)               aggregates)
+                     ▲
+        FastAPI: signals · ask · automations · benchmarks · reputation
 ```
 
-Two processes share one database:
+Two stateless processes share one database:
 
 | Process | Entry point | Responsibility |
 |---|---|---|
-| API | `uvicorn app.main:app` | HTTP surface: signup, locations, ingest webhook, approval workflow, insights, alerts |
-| Worker | `python -m app.worker` | Polls connectors every 15 min; generates weekly insight reports |
+| API | `uvicorn sona.main:app` | Ingest, query, ask, automations CRUD, approval workflow, benchmarks |
+| Worker | `python -m sona.worker` | Connector polling (15 min), nightly benchmark recompute |
 
-Both are stateless; horizontal scaling is adding replicas behind a load balancer
-(worker scaling requires partitioning locations or moving to a queue — see
-Scaling path below).
+## The canonical schema — the strategic core
 
-## The pipeline (`app/services/pipeline.py`)
+`Signal` is one table for every kind of feedback. Channel differences are
+absorbed at the edge (connectors / the ingest endpoint); everything inside the
+platform — enrichment, automations, ask, benchmarks, modules — operates on the
+canonical shape only. Consequences:
 
-Every review, regardless of source, flows through `process_review`:
+- Adding a channel = implementing one connector interface. Nothing else moves.
+- One automation rule spans every channel ("negative + churn_risk" matches a
+  review and an NPS verbatim identically).
+- Cross-tenant aggregation is possible at all (see Benchmarks).
 
-1. **Analyze** — Claude Haiku 4.5 returns a `ReviewAnalysis` (sentiment, score,
-   topics, risk level, churn flag) via structured outputs. Star rating is
-   treated as a hint only; the text wins.
-2. **Alert** — `high`/`critical` risk raises a persisted `Alert` and fires the
-   configured Slack/Discord webhook *before* anything else happens. Owners hear
-   about a food-poisoning claim from Resona, not from a journalist.
-3. **Quota** — analysis is always free; the AI-drafted response is the billable
-   unit, checked against the plan quota (`usage.py`).
-4. **Draft** — Claude Opus 4.8 writes the reply, governed by the org's
-   `BrandVoice` profile, and returns a `DraftedResponse` including its own
-   `escalate_to_human` judgment.
-5. **Route** — three response modes per location:
-   - `draft_only`: drafts pile up for export; customer publishes manually.
-   - `approve` (default): drafts enter `pending_approval`; a human approves.
-   - `auto_publish`: positive/neutral + risk ≤ low + no escalation flag →
-     auto-approved for the publisher. Anything delicate falls back to approval.
-     **The safety override is non-negotiable code, not a prompt suggestion.**
+The **taxonomy** (`sona/core/taxonomy.py`) is the schema's vocabulary: ~40
+versioned canonical topic slugs + a synonym map. The model is instructed to use
+slugs, and `normalize_topics()` enforces it in code; unmapped labels are kept
+as `raw_topics` — the harvest queue for taxonomy growth. Taxonomy discipline
+is what makes "wait-time" comparable across a coffee chain and a dental group.
 
-## AI layer design (`app/ai/`)
+## Pipeline (`sona/pipeline.py`)
+
+1. **Ingest** — idempotent on `(source_id, external_id)`; signals are never
+   dropped (over-quota signals are stored raw and enriched retroactively on
+   upgrade — the upgrade path is visible in the product).
+2. **Enrich** — one structured-output call (`messages.parse` against
+   `SignalEnrichment`): sentiment ±score, language, intent, urgency, topics,
+   risk + reasons, churn flag, summary. Metered as the billable unit.
+3. **Automate** — `actions/engine.py` evaluates declarative rules
+   (AND-combined conditions over canonical fields) and executes actions:
+   `webhook`, `alert`, `draft_reply`, `tag`. Every execution is recorded in
+   `action_runs` — the audit log is the customer's proof of work.
+   - **Built-in system rule:** risk high/critical always alerts. Not
+     configurable, not deletable.
+   - **Safety gate (code, not prompt):** `draft_reply` with
+     `auto_approve: true` still routes to human approval unless risk ≤ low AND
+     sentiment ∈ {positive, neutral} AND the model's own `escalate_to_human`
+     is false.
+   - Action failures are recorded and never poison the pipeline.
+
+## Intelligence layer (`sona/intelligence/`)
 
 | Concern | Decision | Why |
 |---|---|---|
-| Output integrity | `client.messages.parse()` + Pydantic schemas everywhere | No JSON-repair paths; malformed output is impossible by contract |
-| Cost | Static system prompts with `cache_control: ephemeral` | Per-review marginal tokens = the review text itself (~100-300 tokens) |
-| Model tiers | Haiku 4.5 (analysis) / Opus 4.8 (writing, insights) | Volume work goes to the cheap model; the *product* — writing quality and judgment — gets the best model |
-| Insights | Opus 4.8 with adaptive thinking over a pre-aggregated digest | The service compacts a week of reviews into a counted digest first, controlling token spend and grounding claims in counts |
-| Testability | `AIEngine` takes an injectable client; tests use `FakeEngine` | The full suite runs with no network and no API key |
+| Output integrity | `messages.parse()` + Pydantic contracts for every call | Malformed output impossible by contract; model swaps are config |
+| Cost | Static system prompts (taxonomy embedded) with `cache_control` | Marginal cost per signal ≈ the signal text |
+| Tiers | `claude-haiku-4-5` enrich / `claude-opus-4-8` generate+synthesize | Volume work cheap; customer-facing quality premium |
+| Synthesis | Opus with adaptive thinking over a compact counted digest | `/v1/ask` answers must be grounded; evidence IDs validated server-side against the tenant's own signals |
+| Testability | Injectable client; `FakeIntelligence` in tests | Full suite runs offline |
 
-### Inference unit economics
+**Inference economics:** enrichment ~$0.001/signal (Haiku, cached prompt);
+reply drafting ~$0.006 when an automation requests it. At Growth pricing
+($499 / 10k signals), inference is ~2-4% of revenue → ~95% gross margin.
 
-A typical review: ~1,300 cached system tokens (≈free after first hit), ~200
-input tokens, ~150 output tokens.
+## Benchmarks (`sona/benchmarks.py`) — the network effect
 
-| Step | Model | Cost/review (approx) |
-|---|---|---|
-| Analysis | Haiku 4.5 ($1/$5 per MTok) | ~$0.001 |
-| Response | Opus 4.8 ($5/$25 per MTok) | ~$0.006 |
-| **Total** | | **< $0.01** |
+Nightly job aggregates enriched signals per `(industry, topic, period)`:
+org count, signal count, mean sentiment, negative share. Privacy by
+construction:
 
-At Growth-plan pricing ($99 for 600 responses), inference is < 5% of revenue.
-
-## Data model
-
-```
-Organization 1─1 BrandVoice
-Organization 1─* Location 1─* Review 1─1 ReviewResponse
-Organization 1─* Alert, InsightReport, UsageRecord
-```
-
-- `Review` is idempotent on `(platform, external_id)` — connectors and webhooks
-  can re-deliver safely.
-- `UsageRecord` is append-only: one row per billable draft, summed per calendar
-  month for quota and exported to Stripe metered billing.
-- All AI analysis is stored *on* the review row (denormalized) because it is
-  written once and read constantly by filters and the insight digest.
+- Aggregates carry **no organization id** — raw tenant data never crosses the
+  tenant boundary.
+- **k-anonymity at read time**: a segment is published only when
+  `org_count >= SONA_BENCHMARK_MIN_ORGS` (default 5). Thin segments exist in
+  the table but are invisible until the network grows.
 
 ## Security model
 
-- Auth: per-org bearer API keys (`rsn_` + 256-bit token), hashed-at-rest is the
-  first hardening step before public launch (see ROADMAP).
-- Tenant isolation enforced in every query via `organization_id` joins; tests
-  assert cross-tenant 404s.
-- The Anthropic key lives server-side only; customers never touch model config.
-- Review text is untrusted input: it is only ever placed in the user turn of a
-  prompt, never in system prompts, and responses pass through the structured-
-  output contract plus the escalation gate before any auto-publish.
+- API keys: `sk_sona_` + 256-bit token, **sha256-hashed at rest**, returned
+  exactly once at signup.
+- Tenant isolation on every query (`organization_id`); cross-tenant access
+  returns 404 (existence never leaks). Covered by tests.
+- Signal content is untrusted input: it only ever appears in user turns,
+  never in system prompts; `/v1/ask` evidence IDs are filtered against the
+  tenant's own signals server-side.
+- Automations fail closed: unknown condition fields/ops never match.
 
 ## Scaling path
 
 | Stage | Bottleneck | Move |
 |---|---|---|
-| 0 → 1k locations | none | current architecture (Postgres + 2 containers) |
-| 1k → 10k | polling fan-out | swap APScheduler for a queue (e.g. Redis + workers), partition locations |
-| 10k+ | inference throughput | Anthropic Batches API for non-urgent analysis (50% cost), keep drafts real-time |
-| Always | cost | prompt-cache hit rate monitoring via `usage.cache_read_input_tokens` |
+| 0 → 1k orgs | none | current architecture (Postgres + 2 containers) |
+| 1k → 10k | polling fan-out, sync enrichment | queue (Redis/SQS) between ingest and enrich; worker pool |
+| 10k+ | inference throughput / cost | Anthropic Batches API for backfills (-50%); keep live path real-time |
+| Big tenants | analytical queries | warehouse destinations (Snowflake/BigQuery sync) — roadmap |

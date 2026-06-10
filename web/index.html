@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Resona — The AI Reputation Engine</title>
-<meta name="description" content="Every review answered, in your voice, within the hour. Resona drafts on-brand replies, extracts customer intelligence, and catches reputation risks before they spread."/>
+<title>Sona — The Customer Signal Layer</title>
+<meta name="description" content="One API for everything your customers say. Reviews, NPS, tickets, chats — one canonical schema, AI enrichment, automations, plain-language answers, and industry benchmarks."/>
 <style>
   :root{
     --ink:#10231F; --paper:#F4EFE6; --green:#0E7C66; --deep:#063F33;
@@ -13,6 +13,7 @@
   *{box-sizing:border-box;margin:0}
   body{font-family:Georgia,'Times New Roman',serif;background:var(--paper);color:var(--ink);line-height:1.6}
   .sans{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif}
+  .mono{font-family:ui-monospace,'SF Mono',Menlo,monospace}
   .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
   header{padding:28px 0;display:flex;align-items:center;justify-content:space-between}
   .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:1.25rem;letter-spacing:.02em}
@@ -20,112 +21,130 @@
   nav a{color:var(--ink);text-decoration:none;margin-left:26px;font-size:.95rem}
   nav a.cta{background:var(--deep);color:var(--paper);padding:10px 18px;border-radius:8px}
   .hero{padding:72px 0 56px;text-align:center}
-  .hero h1{font-size:clamp(2.2rem,5.4vw,3.6rem);line-height:1.12;font-weight:600;max-width:820px;margin:0 auto}
+  .hero h1{font-size:clamp(2.2rem,5.4vw,3.5rem);line-height:1.12;font-weight:600;max-width:840px;margin:0 auto}
   .hero h1 em{font-style:italic;color:var(--green)}
-  .hero p.lede{max-width:640px;margin:22px auto 0;font-size:1.18rem;color:#3c4f4a}
+  .hero p.lede{max-width:660px;margin:22px auto 0;font-size:1.16rem;color:#3c4f4a}
   .cta-row{margin-top:34px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
   .btn{display:inline-block;padding:14px 26px;border-radius:9px;text-decoration:none;font-size:1rem}
   .btn.primary{background:var(--green);color:#fff}
   .btn.ghost{border:1.5px solid var(--ink);color:var(--ink)}
   .proof{margin-top:18px;font-size:.9rem;color:#5a6b66}
-  .demo{background:#fff;border:1px solid var(--line);border-radius:14px;max-width:760px;margin:56px auto 0;text-align:left;overflow:hidden;box-shadow:0 18px 50px -30px rgba(6,63,51,.45)}
-  .demo .bar{background:var(--deep);color:var(--paper);padding:10px 18px;font-size:.85rem}
-  .demo .body{padding:22px 26px;display:grid;gap:18px}
-  .review,.reply{padding:16px 18px;border-radius:10px;font-size:.97rem}
-  .review{background:#FBF7F0;border:1px solid var(--line)}
-  .reply{background:#EAF4F0;border:1px solid #cfe4dc}
-  .tag{display:inline-block;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:99px;margin-bottom:8px}
-  .tag.neg{background:#f3ddd2;color:#8a3d12}
-  .tag.ai{background:#d6ebe3;color:var(--deep)}
+  .term{background:#0d1f1a;color:#d9efe7;border-radius:14px;max-width:780px;margin:56px auto 0;text-align:left;overflow:hidden;box-shadow:0 18px 50px -30px rgba(6,63,51,.55);font-size:.86rem}
+  .term .bar{background:#08130f;padding:10px 18px;color:#7da99c}
+  .term pre{padding:22px 26px;overflow-x:auto;line-height:1.55;margin:0;white-space:pre}
+  .term .c{color:#7da99c} .term .k{color:#ffd9a8} .term .g{color:#8fe3c8}
   section{padding:64px 0;border-top:1px solid var(--line)}
   h2{font-size:2rem;font-weight:600;margin-bottom:8px}
-  .sub{color:#3c4f4a;max-width:620px;margin-bottom:36px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:22px}
+  .sub{color:#3c4f4a;max-width:640px;margin-bottom:36px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px}
   .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:26px}
-  .card h3{font-size:1.12rem;margin-bottom:8px}
-  .card p{font-size:.95rem;color:#3c4f4a}
+  .card h3{font-size:1.1rem;margin-bottom:8px}
+  .card p{font-size:.94rem;color:#3c4f4a}
   .num{font-size:.8rem;color:var(--amber);letter-spacing:.1em}
-  .pricing .card.featured{border:2px solid var(--green);position:relative}
-  .price{font-size:2.2rem;font-weight:600;margin:10px 0 2px}
+  .moat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px;margin-top:8px}
+  .moat p{max-width:760px;color:#3c4f4a}
+  .moat strong{color:var(--deep)}
+  .pricing .card.featured{border:2px solid var(--green)}
+  .price{font-size:2.1rem;font-weight:600;margin:10px 0 2px}
   .price span{font-size:.85rem;font-weight:400;color:#5a6b66}
   .pricing ul{list-style:none;margin-top:14px}
   .pricing li{font-size:.92rem;padding:5px 0;color:#3c4f4a}
   .pricing li::before{content:"— ";color:var(--green)}
-  footer{padding:44px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;flex-wrap:gap;font-size:.88rem;color:#5a6b66}
+  footer{padding:44px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:.88rem;color:#5a6b66}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="sans">
-    <div class="brand"><img src="logo.svg" alt=""/>Resona</div>
+    <div class="brand"><img src="logo.svg" alt=""/>Sona</div>
     <nav>
-      <a href="#how">How it works</a>
+      <a href="#layer">The layer</a>
+      <a href="#moat">Benchmarks</a>
       <a href="#pricing">Pricing</a>
       <a href="/docs">API</a>
-      <a class="cta" href="#pricing">Start free</a>
+      <a class="cta" href="#pricing">Get an API key</a>
     </nav>
   </header>
 
   <div class="hero">
-    <h1>Every review answered.<br/>In <em>your</em> voice. Within the hour.</h1>
-    <p class="lede">Resona reads every customer review the moment it lands, drafts a reply a great manager would be proud of, and flags the ones that could hurt you — across every location, every platform, every day.</p>
+    <h1>Everything your customers say.<br/><em>One schema.</em> Acted on.</h1>
+    <p class="lede">Reviews, NPS verbatims, support tickets, chats, surveys — Sona turns them all into one canonical, AI-enriched stream you can query in plain language, automate against, and benchmark with your industry.</p>
     <div class="cta-row sans">
-      <a class="btn primary" href="#pricing">Start your 14-day free trial</a>
-      <a class="btn ghost" href="#how">See it work</a>
+      <a class="btn primary" href="#pricing">Start free — 500 signals/mo</a>
+      <a class="btn ghost" href="#layer">Read the docs</a>
     </div>
-    <p class="proof sans">No credit card required · Connects to Google &amp; Trustpilot in minutes · You approve everything (until you trust it not to need you)</p>
+    <p class="proof sans">API-first · Enriched in seconds · Your raw data never leaves your tenant</p>
 
-    <div class="demo sans">
-      <div class="bar">Live: incoming review → Resona draft (4.1 seconds later)</div>
-      <div class="body">
-        <div class="review">
-          <span class="tag neg">★★ · Google · 2 min ago</span><br/>
-          “Waited 25 minutes for a latte and the barista was rude about it. Used to love this place.”
-        </div>
-        <div class="reply">
-          <span class="tag ai">Resona draft · matches your voice profile</span><br/>
-          “Dana, a 25-minute wait is nowhere near the bar we hold ourselves to — especially for a regular. We've put a second barista on the morning shift as of this week. I'd like to hear what happened directly: care@bluebird.coffee. — Sam, Manager”
-        </div>
-      </div>
+    <div class="term mono">
+      <div class="bar">$ sona — ask your customers anything</div>
+      <pre><span class="c"># Any channel in…</span>
+POST /v1/signals  {"kind": "nps", "nps_score": 3,
+  "content": "Charged twice and support took 4 days."}
+
+<span class="c"># …canonical, enriched signal out (1.2s later)</span>
+{"sentiment": "negative", "intent": "complaint",
+ "topics": [<span class="g">"billing"</span>, <span class="g">"support-responsiveness"</span>],
+ "churn_risk": true, "urgency": "high"}
+
+<span class="c"># Then just ask.</span>
+POST /v1/ask {"question": <span class="k">"What do detractors mention
+  that promoters don't?"</span>}
+
+{"answer": "Billing confusion — 9 of 31 detractor verbatims
+  mention unexpected charges; no promoter does.",
+ "evidence_signal_ids": [203, 211, 217], "confidence": "high"}</pre>
     </div>
   </div>
 
-  <section id="how">
-    <h2>One engine, four jobs</h2>
-    <p class="sub">Resona is not a template machine. It's an analyst, a writer, and a night-watchman that never clocks out.</p>
+  <section id="layer">
+    <h2>One layer, four primitives</h2>
+    <p class="sub">Not another dashboard on top of the mess — the schema underneath it.</p>
     <div class="grid sans">
-      <div class="card"><div class="num">01 · INGEST</div><h3>Every review, every platform</h3><p>Native connectors for Google Business Profile and Trustpilot, plus a webhook API for everything else. New reviews enter the pipeline within minutes.</p></div>
-      <div class="card"><div class="num">02 · UNDERSTAND</div><h3>Structured intelligence, not vibes</h3><p>Sentiment, topics, churn signals, and legal/safety risk extracted as validated data from every review — the dataset your ops team never had.</p></div>
-      <div class="card"><div class="num">03 · RESPOND</div><h3>Replies that sound like you</h3><p>A per-brand voice profile governs tone, sign-off, forbidden phrases, and compensation policy. Auto-publish the easy ones; approve the delicate ones.</p></div>
-      <div class="card"><div class="num">04 · PROTECT</div><h3>Risk alerts &amp; weekly insights</h3><p>Health claims, legal threats, and rating slides trigger instant alerts. Every Monday, a 2-minute executive brief: what's working, what's breaking, what to fix first.</p></div>
+      <div class="card"><div class="num">01 · SIGNALS</div><h3>Canonical ingestion</h3><p>Connectors for Google &amp; Trustpilot, one POST for everything else. Every piece of feedback becomes the same shape — idempotent, forever queryable.</p></div>
+      <div class="card"><div class="num">02 · ENRICHMENT</div><h3>Structured intelligence</h3><p>Sentiment, intent, urgency, churn and legal/safety risk, language — and topics mapped to one cross-industry taxonomy. Validated output, never vibes.</p></div>
+      <div class="card"><div class="num">03 · AUTOMATIONS</div><h3>Rules that act</h3><p>"Negative + churn risk → webhook to Slack." "Review → on-brand AI reply, human-approved." One rule language across every channel, with safety gates in code.</p></div>
+      <div class="card"><div class="num">04 · ANSWERS</div><h3>Ask anything</h3><p>Natural-language questions over your signals, answered with evidence IDs. The Monday meeting becomes an API call.</p></div>
+    </div>
+  </section>
+
+  <section id="moat">
+    <h2>The number nobody else can sell you</h2>
+    <div class="moat">
+      <p>Because every tenant's signals speak the same taxonomy, Sona computes what no single company can: <strong>how your complaint rates compare to your industry.</strong> "Your wait-time complaint share is 2.3× the category median" is only computable across companies — anonymized aggregates, k-anonymity enforced, raw data never crossing tenant boundaries.</p>
+      <p style="margin-top:14px">Every new customer makes the benchmarks denser for every existing customer. That's the moat: software can be copied; an installed base speaking one schema cannot.</p>
     </div>
   </section>
 
   <section id="pricing" class="pricing">
-    <h2>Pricing that pays for itself by Tuesday</h2>
-    <p class="sub">A manager spends ~6 minutes per thoughtful reply. At 100 reviews a month, that's 10 hours of skilled labor. Resona does it for the price of two of those hours — per location, everything included.</p>
+    <h2>Priced like infrastructure</h2>
+    <p class="sub">By signal volume. Over-quota signals are stored, never dropped — and enriched the moment you upgrade.</p>
     <div class="grid sans">
       <div class="card">
-        <h3>Starter</h3>
-        <div class="price">$49<span> /location/mo</span></div>
-        <ul><li>150 AI responses / mo</li><li>Sentiment &amp; topic analysis</li><li>Approval workflow</li><li>Google + Trustpilot + webhook</li></ul>
+        <h3>Developer</h3>
+        <div class="price">$0<span> /mo</span></div>
+        <ul><li>500 signals / mo</li><li>Full API &amp; enrichment</li><li>Automations</li><li>Reputation module</li></ul>
       </div>
       <div class="card featured">
         <h3>Growth</h3>
-        <div class="price">$99<span> /location/mo</span></div>
-        <ul><li>600 AI responses / mo</li><li>Everything in Starter</li><li>Weekly executive insights</li><li>Auto-publish mode</li><li>Churn-risk flagging</li></ul>
+        <div class="price">$499<span> /mo</span></div>
+        <ul><li>10,000 signals / mo</li><li>Everything in Developer</li><li>Ask (NL answers)</li><li>Industry benchmarks</li><li>Priority enrichment</li></ul>
       </div>
       <div class="card">
         <h3>Scale</h3>
-        <div class="price">$249<span> /location/mo</span></div>
-        <ul><li>Unlimited AI responses</li><li>Everything in Growth</li><li>Real-time risk alerts</li><li>Full API access</li><li>Priority support &amp; SLA</li></ul>
+        <div class="price">$1,990<span> /mo</span></div>
+        <ul><li>100,000 signals / mo</li><li>Everything in Growth</li><li>SLA &amp; support</li><li>Warehouse sync (soon)</li></ul>
+      </div>
+      <div class="card">
+        <h3>Enterprise</h3>
+        <div class="price">Custom</div>
+        <ul><li>Unlimited signals</li><li>SSO, DPA, residency</li><li>Dedicated taxonomy review</li><li>White-label modules</li></ul>
       </div>
     </div>
   </section>
 
   <footer class="sans">
-    <div>© 2026 Resona · Every review answered.</div>
-    <div>hello@resona.app</div>
+    <div>© 2026 Sona · Everything your customers say. One schema. Acted on.</div>
+    <div>hello@sona.dev</div>
   </footer>
 </div>
 </body>

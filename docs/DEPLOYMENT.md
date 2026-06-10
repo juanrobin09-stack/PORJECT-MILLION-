@@ -1,10 +1,11 @@
-# Resona — Production Deployment
+# Sona — Production Deployment
 
 ## Topology
 
-Three components: **API** (uvicorn), **worker** (poller + scheduler), and
-**Postgres**. The included `docker-compose.yml` runs all three; the same images
-deploy to any container platform (Fly.io, Render, ECS, Cloud Run + Cloud SQL).
+Three components: **API** (uvicorn), **worker** (connector polling + nightly
+benchmarks), **Postgres**. `docker-compose.yml` runs all three; the same
+images deploy to any container platform (Fly.io, Render, ECS, Cloud Run +
+Cloud SQL).
 
 ```bash
 cp .env.example .env   # fill in secrets
@@ -15,40 +16,38 @@ docker compose up --build -d
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Powers all analysis/drafting. Without it, ingestion works but reviews are stored unanalyzed (useful for staging). |
-| `RESONA_DATABASE_URL` | `postgresql+psycopg://user:pass@host:5432/resona` in production |
-| `RESONA_ALERT_WEBHOOK_URL` | Slack/Discord incoming-webhook for risk alerts |
-| `GOOGLE_BUSINESS_API_KEY` / `TRUSTPILOT_API_KEY` | Enable connector polling; otherwise webhook-only ingestion |
-| `STRIPE_SECRET_KEY` | Billing (metered usage export reads `usage_records`) |
+| `ANTHROPIC_API_KEY` | Powers enrichment, replies, and `/v1/ask`. Without it, ingestion still works and signals are stored raw (useful for staging). |
+| `SONA_DATABASE_URL` | `postgresql+psycopg://user:pass@host:5432/sona` in production |
+| `GOOGLE_BUSINESS_API_KEY` / `TRUSTPILOT_API_KEY` | Enable connector polling; otherwise ingest-API only |
+| `SONA_BENCHMARK_MIN_ORGS` | k-anonymity threshold (default 5 — do not lower in production) |
 
-Model tiers are overridable (`RESONA_MODEL_RESPONSE`, `RESONA_MODEL_TRIAGE`,
-`RESONA_MODEL_INSIGHTS`) — e.g. drop the response model to `claude-sonnet-4-6`
-for a cheaper tier without code changes.
+Model tiers are env-overridable (`SONA_MODEL_ENRICH`, `SONA_MODEL_GENERATE`)
+— cost/quality is a config change, never a deploy.
 
 ## Production checklist
 
-- [ ] Postgres with automated backups (the DB is the business)
-- [ ] TLS termination at the load balancer; API serves plain HTTP internally
-- [ ] Set `RESONA_ENV=production`
-- [ ] Anthropic API key scoped to a dedicated workspace; spend alerts on
-- [ ] Alert webhook wired to an on-call channel, not a graveyard channel
+- [ ] Postgres with automated backups (the signal store is the business)
+- [ ] TLS at the load balancer; `SONA_ENV=production`
+- [ ] Anthropic key in a dedicated workspace; spend alerts on
 - [ ] Uptime check on `GET /health`
-- [ ] Log aggregation: both processes log structured lines to stdout
-- [ ] Run `pytest` in CI (already wired in `.github/workflows/ci.yml`)
+- [ ] Log aggregation (both processes log structured lines to stdout)
+- [ ] CI green (`.github/workflows/ci.yml` runs the 24-test suite)
 
 ## Operations
 
-**Database migrations** — schema is created via `init_db()` at startup. Before
-the first breaking schema change, adopt Alembic (`alembic init`, autogenerate
-against `app.database.Base`).
+**Migrations** — schema is created by `init_db()` at startup; adopt Alembic
+before the first breaking change (roadmap, month 1-3).
 
-**Cost monitoring** — the dominant variable cost is Opus drafting. Watch the
-Anthropic console per-workspace; the prompt-cache hit rate should stay >90%
-once traffic is steady (system prompts are static by design — keep them that
-way; see comments in `app/ai/prompts.py`).
+**Cost** — the dominant variable cost is Opus generation (replies + ask).
+Watch prompt-cache hit rate (`usage.cache_read_input_tokens` in the Anthropic
+console) — system prompts are static by design; keep them that way (see notes
+in `sona/intelligence/prompts.py`). Enrichment on Haiku is ~$0.001/signal.
 
-**Scaling** — API replicas scale freely. Run exactly one worker until location
-count demands partitioning (see ARCHITECTURE.md → Scaling path).
+**Scaling** — API replicas scale freely; one worker until source count
+demands partitioning (then: queue + worker pool, see ARCHITECTURE.md).
 
-**Quota resets** — usage is computed from `usage_records` per calendar month
-(UTC); no cron needed.
+**Quotas** — computed from `usage_records` per calendar month (UTC); no cron.
+Over-quota signals are stored raw and enriched retroactively on upgrade.
+
+**Benchmarks** — recomputed nightly (04:00 UTC by default); safe to re-run
+ad hoc: `python -c "from sona.database import SessionLocal; from sona.benchmarks import compute_benchmarks; compute_benchmarks(SessionLocal())"`.

@@ -5,17 +5,17 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      RESONA_DATABASE_URL: postgresql+psycopg://resona:resona@db:5432/resona
+      SONA_DATABASE_URL: postgresql+psycopg://sona:sona@db:5432/sona
     depends_on:
       db:
         condition: service_healthy
 
   worker:
     build: .
-    command: python -m app.worker
+    command: python -m sona.worker
     env_file: .env
     environment:
-      RESONA_DATABASE_URL: postgresql+psycopg://resona:resona@db:5432/resona
+      SONA_DATABASE_URL: postgresql+psycopg://sona:sona@db:5432/sona
     depends_on:
       db:
         condition: service_healthy
@@ -23,16 +23,16 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: resona
-      POSTGRES_PASSWORD: resona
-      POSTGRES_DB: resona
+      POSTGRES_USER: sona
+      POSTGRES_PASSWORD: sona
+      POSTGRES_DB: sona
     volumes:
-      - resona_pg:/var/lib/postgresql/data
+      - sona_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U resona"]
+      test: ["CMD-SHELL", "pg_isready -U sona"]
       interval: 3s
       timeout: 3s
       retries: 10
 
 volumes:
-  resona_pg:
+  sona_pg:

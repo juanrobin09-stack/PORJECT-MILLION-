@@ -1,15 +1,15 @@
 import os
 
-os.environ["RESONA_DATABASE_URL"] = "sqlite:///./test_resona.db"
+os.environ["SONA_DATABASE_URL"] = "sqlite:///./test_sona.db"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import Base, engine
-from app.main import app
-from app.models import RiskLevel, Sentiment
-from app.schemas import DraftedResponse, ReviewAnalysis, WeeklyInsights
+from sona.database import Base, engine
+from sona.intelligence.schemas import DraftedReply, SignalEnrichment, SynthesizedAnswer
+from sona.main import app
+from sona.models import Intent, RiskLevel, Sentiment, Urgency
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,10 @@ def client():
 
 @pytest.fixture
 def org(client):
-    resp = client.post("/v1/organizations", json={"name": "Bluebird Coffee", "plan": "growth"})
+    resp = client.post(
+        "/v1/organizations",
+        json={"name": "Bluebird Coffee", "industry": "Food & Beverage", "plan": "growth"},
+    )
     assert resp.status_code == 201
     return resp.json()
 
@@ -38,68 +41,98 @@ def auth(org):
 
 
 @pytest.fixture
-def location(client, auth):
+def source(client, auth):
     resp = client.post(
-        "/v1/locations",
-        json={"name": "Mission St", "platform_ids": {"google": "loc-1"}},
-        headers=auth,
+        "/v1/sources", json={"name": "Mission St — Google", "kind": "google"}, headers=auth
     )
     assert resp.status_code == 201
     return resp.json()
 
 
-class FakeEngine:
-    """Deterministic stand-in for AIEngine — no network, no API key."""
+class FakeIntelligence:
+    """Deterministic stand-in for IntelligenceEngine — no network, no key."""
 
     def __init__(
         self,
-        analysis: ReviewAnalysis | None = None,
-        draft: DraftedResponse | None = None,
-        insights: WeeklyInsights | None = None,
+        enrichment: SignalEnrichment | None = None,
+        draft: DraftedReply | None = None,
+        answer: SynthesizedAnswer | None = None,
     ):
-        self.analysis = analysis or ReviewAnalysis(
+        self.enrichment = enrichment or SignalEnrichment(
             sentiment=Sentiment.negative,
             sentiment_score=-0.6,
-            topics=["wait time", "staff friendliness"],
+            language="en",
+            intent=Intent.complaint,
+            urgency=Urgency.medium,
+            topics=["wait-time", "staff-friendliness"],
             risk_level=RiskLevel.low,
             risk_reasons=[],
             churn_risk=False,
             summary="Customer waited 25 minutes and found staff rude.",
         )
-        self.draft = draft or DraftedResponse(
-            response_text=(
-                "Dana, a 25-minute wait for a latte is not the bar we hold ourselves to. "
-                "We've added a second barista to the morning shift this week. "
-                "If you'll give us another shot, write me directly at care@bluebird.coffee. "
-                "— Sam, Manager"
+        self.draft = draft or DraftedReply(
+            reply_text=(
+                "Dana, a 25-minute wait is not the bar we hold ourselves to. "
+                "We've added a second barista this week. Write me directly: "
+                "care@bluebird.coffee — Sam, Manager"
             ),
-            addresses_complaints=["wait time", "staff attitude"],
+            addresses_points=["wait time"],
             escalate_to_human=False,
             escalation_reason="",
         )
-        self.insights = insights or WeeklyInsights(
-            executive_summary="Wait times drove 70% of negative sentiment this week.",
-            top_strengths=["coffee quality"],
-            top_issues=["wait time"],
-            emerging_trends=["mobile order pickup confusion"],
-            recommended_actions=["add a second register during the 12-2pm rush"],
-            locations_at_risk=[],
+        self.answer = answer or SynthesizedAnswer(
+            answer="Wait time is the dominant complaint: 2 of 2 negative signals mention it.",
+            evidence_signal_ids=[1, 2],
+            confidence="high",
+            caveats="Single channel, small sample.",
         )
-        self.analyze_calls = 0
+        self.enrich_calls = 0
         self.draft_calls = 0
 
-    def analyze_review(self, review):
-        self.analyze_calls += 1
-        return self.analysis
+    def enrich(self, signal):
+        self.enrich_calls += 1
+        return self.enrichment, []
 
-    def draft_response(self, review, analysis, voice):
+    def draft_reply(self, signal, enrichment, voice):
         self.draft_calls += 1
         return self.draft
 
-    def weekly_insights(self, review_digest, baseline_summary=""):
-        return self.insights
+    def synthesize(self, question, signal_digest):
+        return self.answer
 
 
 @pytest.fixture
 def fake_engine():
-    return FakeEngine()
+    return FakeIntelligence()
+
+
+def ingest(client, auth, source, external_id="s-1", kind="review", rating=2,
+           text="Waited 25 minutes for a latte.", **extra):
+    resp = client.post(
+        "/v1/signals",
+        json={
+            "source_id": source["id"],
+            "external_id": external_id,
+            "kind": kind,
+            "rating": rating,
+            "content": text,
+            "author": {"name": "Dana M."},
+            **extra,
+        },
+        headers=auth,
+    )
+    assert resp.status_code == 202
+    return resp.json()
+
+
+def process(signal_id, engine):
+    from sona import pipeline
+    from sona.database import SessionLocal
+    from sona.models import Signal
+
+    db = SessionLocal()
+    try:
+        signal = db.get(Signal, signal_id)
+        return pipeline.process_signal(db, signal, engine=engine)
+    finally:
+        db.close()
