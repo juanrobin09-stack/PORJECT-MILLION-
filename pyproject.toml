@@ -28,3 +28,6 @@ include = ["sona*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.vercel]
+entrypoint = "sona.main:app"
