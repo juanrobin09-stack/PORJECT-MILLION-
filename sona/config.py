@@ -1,13 +1,20 @@
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Serverless platforms (Vercel, AWS Lambda, ...) ship a read-only filesystem
+# except for /tmp, so the default SQLite file must live there when deployed.
+_DEFAULT_DATABASE_URL = (
+    "sqlite:////tmp/sona.db" if os.environ.get("VERCEL") else "sqlite:///./sona.db"
+)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Core
-    sona_database_url: str = "sqlite:///./sona.db"
+    sona_database_url: str = _DEFAULT_DATABASE_URL
     sona_env: str = "development"
 
     # AI
