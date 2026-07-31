@@ -1,7 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from sona import __version__
 from sona.api import ask, automations, benchmarks, organizations, reputation, signals
@@ -39,3 +41,8 @@ app.include_router(reputation.router, prefix=API_PREFIX)
 @app.get("/health", tags=["meta"])
 def health():
     return {"status": "ok", "version": __version__}
+
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+if WEB_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
